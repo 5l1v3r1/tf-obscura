@@ -12,13 +12,16 @@ def show_example():
     """
     Run a quick and dirty program.
     """
-    source_code = ('++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]' +
-                   '>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.' +
-                   ',[.,]')
-    input_buffer = ' (said the BF program)'
-    output = run_program(tf.constant(source_code), tf.constant(input_buffer))
+    source_ph = tf.placeholder(tf.string)
+    input_ph = tf.placeholder(tf.string)
+    output = run_program(source_ph, input_ph)
     with tf.Session() as sess:
-        print('output:', sess.run(output))
+        source_code = ('++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]' +
+                       '>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.' +
+                       ',[.,]')
+        input_buffer = ' (said the BF program)'
+        print('output:', sess.run(output, feed_dict={source_ph: source_code,
+                                                     input_ph: input_buffer}))
 
 def run_program(code_str, input_str, memory_size=4096):
     """
