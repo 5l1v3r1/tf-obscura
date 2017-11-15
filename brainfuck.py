@@ -12,8 +12,10 @@ def show_example():
     """
     Run a quick and dirty program.
     """
-    source_code = ''.join(['+']*ord('H')) + '.>' + ''.join(['+']*ord('i')) + '.,.'
-    input_buffer = '!'
+    source_code = ('++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]' +
+                   '>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.' +
+                   ',[.,]')
+    input_buffer = ' (said the BF program)'
     output = run_program(tf.constant(source_code), tf.constant(input_buffer))
     with tf.Session() as sess:
         print('output:', sess.run(output))
@@ -48,8 +50,9 @@ def step_program(code, state):
       The new state tuple.
     """
     inst = code[state.code_ptr]
-    conds = [('<', '>'), ('+', '-'), ('[', ']'), (','), ('.')]
-    raw_funcs = [adjust_mem_pointer, adjust_mem, jump, read_input, write_output]
+    conds = [('<', '>'), ('+', '-'), ('['), (']'), (','), ('.')]
+    raw_funcs = [adjust_mem_pointer, adjust_mem, partial(loop_open, code),
+                 partial(loop_close, code), read_input, write_output]
     preds = [instruction_equals(inst, *cond) for cond in conds]
     funcs = [partial(func, inst, state) for func in raw_funcs]
     return tf.case(list(zip(preds, funcs)),
@@ -78,17 +81,26 @@ def adjust_mem(inst, state):
     """
     Perform a '-' or '+' instruction.
     """
-    offset = tf.cond(instruction_equals(inst, '<'),
+    offset = tf.cond(instruction_equals(inst, '-'),
                      true_fn=partial(tf.constant, 0xff, dtype=tf.uint8),
                      false_fn=partial(tf.constant, 1, dtype=tf.uint8))
     return state.add_mem(offset).next().as_tuple()
 
-def jump(inst, state):
+def loop_open(code, _, state):
     """
-    Perform a '[' or ']' instruction.
+    Perform a '[' instruction.
     """
-    # TODO: this.
-    return state.next().as_tuple()
+    return state.jump(tf.cond(tf.equal(state.read_mem(), 0),
+                              true_fn=lambda: matching_bracket(code, state.code_ptr, 1)+1,
+                              false_fn=lambda: state.code_ptr+1)).as_tuple()
+
+def loop_close(code, _, state):
+    """
+    Perform a ']' instruction.
+    """
+    return state.jump(tf.cond(tf.not_equal(state.read_mem(), 0),
+                              true_fn=lambda: matching_bracket(code, state.code_ptr, -1)+1,
+                              false_fn=lambda: state.code_ptr+1)).as_tuple()
 
 def read_input(_, state):
     """
@@ -104,6 +116,25 @@ def write_output(_, state):
     Perform a '.' instruction.
     """
     return state.write_output(state.read_mem()).next().as_tuple()
+
+def matching_bracket(code, code_ptr, direction):
+    """
+    Find the code pointer of a matching bracket.
+
+    Args:
+      code: the code buffer.
+      code_ptr: the current code pointer.
+      direction: 1 for finding a ']', or -1 for '['.
+    """
+    counter = tf.constant(1, dtype=tf.int32)
+    return tf.while_loop(lambda c, _: c > 0,
+                         lambda c, p: (tf.case([(tf.equal(code[p + direction], ord('[')),
+                                                 lambda: c + direction),
+                                                (tf.equal(code[p + direction], ord(']')),
+                                                 lambda: c - direction)],
+                                               default=lambda: c),
+                                       p + direction),
+                         (counter, code_ptr))[1]
 
 class State:
     """
@@ -133,14 +164,14 @@ class State:
         """
         Advance the code pointer.
         """
-        return self.add_code_ptr(1)
+        return self.jump(self.code_ptr + 1)
 
-    def add_code_ptr(self, offset):
+    def jump(self, addr):
         """
-        Add a value to the code pointer.
+        Set the code pointer.
         """
         res = self._copy()
-        res.code_ptr = res.code_ptr + offset
+        res.code_ptr = addr
         return res
 
     def add_mem_ptr(self, offset):
