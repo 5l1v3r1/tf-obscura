@@ -54,7 +54,7 @@ def step_program(code, state):
     raw_funcs = [adjust_mem_pointer, adjust_mem, partial(loop_open, code),
                  partial(loop_close, code), read_input, write_output]
     preds = [instruction_equals(inst, *cond) for cond in conds]
-    funcs = [partial(func, inst, state) for func in raw_funcs]
+    funcs = [lambda f=func: f(inst, state).as_tuple() for func in raw_funcs]
     return tf.case(list(zip(preds, funcs)),
                    default=lambda: state.next().as_tuple())
 
@@ -75,7 +75,7 @@ def adjust_mem_pointer(inst, state):
     offset = tf.cond(instruction_equals(inst, '<'),
                      true_fn=partial(tf.constant, -1, dtype=tf.int32),
                      false_fn=partial(tf.constant, 1, dtype=tf.int32))
-    return state.add_mem_ptr(offset).next().as_tuple()
+    return state.add_mem_ptr(offset).next()
 
 def adjust_mem(inst, state):
     """
@@ -84,7 +84,7 @@ def adjust_mem(inst, state):
     offset = tf.cond(instruction_equals(inst, '-'),
                      true_fn=partial(tf.constant, 0xff, dtype=tf.uint8),
                      false_fn=partial(tf.constant, 1, dtype=tf.uint8))
-    return state.add_mem(offset).next().as_tuple()
+    return state.add_mem(offset).next()
 
 def loop_open(code, _, state):
     """
@@ -92,7 +92,7 @@ def loop_open(code, _, state):
     """
     return state.jump(tf.cond(tf.equal(state.read_mem(), 0),
                               true_fn=lambda: matching_bracket(code, state.code_ptr, 1)+1,
-                              false_fn=lambda: state.code_ptr+1)).as_tuple()
+                              false_fn=lambda: state.code_ptr+1))
 
 def loop_close(code, _, state):
     """
@@ -100,7 +100,7 @@ def loop_close(code, _, state):
     """
     return state.jump(tf.cond(tf.not_equal(state.read_mem(), 0),
                               true_fn=lambda: matching_bracket(code, state.code_ptr, -1)+1,
-                              false_fn=lambda: state.code_ptr+1)).as_tuple()
+                              false_fn=lambda: state.code_ptr+1))
 
 def read_input(_, state):
     """
@@ -109,13 +109,13 @@ def read_input(_, state):
     in_byte = tf.cond(state.input_ptr < tf.shape(state.inputs)[0],
                       true_fn=lambda: state.inputs[state.input_ptr],
                       false_fn=partial(tf.constant, 0, dtype=tf.uint8))
-    return state.write_mem(in_byte).add_input_ptr(1).next().as_tuple()
+    return state.write_mem(in_byte).add_input_ptr(1).next()
 
 def write_output(_, state):
     """
     Perform a '.' instruction.
     """
-    return state.write_output(state.read_mem()).next().as_tuple()
+    return state.write_output(state.read_mem()).next()
 
 def matching_bracket(code, code_ptr, direction):
     """
@@ -127,6 +127,7 @@ def matching_bracket(code, code_ptr, direction):
       direction: 1 for finding a ']', or -1 for '['.
     """
     counter = tf.constant(1, dtype=tf.int32)
+    # pylint: disable=E0602
     return tf.while_loop(lambda c, _: c > 0,
                          lambda c, p: (tf.case([(tf.equal(code[p + direction], ord('[')),
                                                  lambda: c + direction),
