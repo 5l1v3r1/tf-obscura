@@ -12,8 +12,8 @@ def show_example():
     """
     Run a quick and dirty program.
     """
-    source_code = ''.join(['+']*ord('H')) + '.>' + ''.join(['+']*ord('i')) + '.'
-    input_buffer = ''
+    source_code = ''.join(['+']*ord('H')) + '.>' + ''.join(['+']*ord('i')) + '.,.'
+    input_buffer = '!'
     output = run_program(tf.constant(source_code), tf.constant(input_buffer))
     with tf.Session() as sess:
         print('output:', sess.run(output))
@@ -94,8 +94,10 @@ def read_input(_, state):
     """
     Perform a ',' instruction.
     """
-    # TODO: this.
-    return state.next().as_tuple()
+    in_byte = tf.cond(state.input_ptr < tf.shape(state.inputs)[0],
+                      true_fn=lambda: state.inputs[state.input_ptr],
+                      false_fn=partial(tf.constant, 0, dtype=tf.uint8))
+    return state.write_mem(in_byte).add_input_ptr(1).next().as_tuple()
 
 def write_output(_, state):
     """
